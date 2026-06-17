@@ -1,92 +1,104 @@
+import time
+import os
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 import yfinance as yf
 import pandas as pd
 import numpy as np
-from typing import Optional, Dict, List
 
 app = FastAPI()
+
+# Allow GitHub Pages to talk to this Render server
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
-@app.get("/validate/{ticker}")
-def validate_ticker(ticker: str):
-    try:
-        info = yf.Ticker(ticker.strip().upper()).info
-        if not info or "symbol" not in info: raise ValueError("Invalid ticker")
-        return {"valid": True, "name": info.get("longName", info.get("shortName", ticker))}
-    except:
-        return {"valid": False}
+def calculate_technical_score(df):
+    """Calculates a 0-100 technical score based on indicators."""
+    if len(df) < 50: return 50
+    
+    close = df['Close']
+    rsi = (close - close.rolling(14).min()) / (close.rolling(14).max() - close.rolling(14).min()) * 100
+    sma20 = close.rolling(20).mean().iloc[-1]
+    sma50 = close.rolling(50).mean().iloc[-1]
+    
+    score = 50 # Neutral
+    
+    # RSI Logic
+    rsi_val = rsi.iloc[-1] if not pd.isna(rsi.iloc[-1]) else 50
+    if rsi_val > 70: score -= 20 # Overbought (Risk)
+    elif rsi_val < 30: score += 20 # Oversold (Buy Signal)
+    
+    # Trend Logic
+    if sma20 > sma50: score += 15 # Bullish trend
+    else: score -= 15
+    
+    return max(0, min(100, int(score)))
+
+def calculate_risk_info(ticker_obj):
+    """Calculates risk metrics."""
+    info = ticker_obj.info or {}
+    
+    beta = info.get("beta", None)
+    volatility_52w = info.get("fiftyTwoWeekHigh", 0) / info.get("fiftyTwoWeekLow", 1)
+    
+    # Simple Risk Score (Lower is safer)
+    # Beta > 1.5 is volatile. Volatility Ratio > 3.0 is dangerous.
+    risk_score = 25 + (beta if beta else 1) * 20 + volatility_52w * 10
+    
+    return {
+        "beta": round(beta, 2) if beta else None,
+        "volatility_ratio": round(volatility_52w, 2),
+        "risk_level": "HIGH" if risk_score > 70 else ("MEDIUM" if risk_score > 40 else "LOW")
+    }
 
 @app.get("/stock/{ticker}")
-def get_stock(ticker: str):
+def get_stock_data(ticker: str):
     try:
         t = yf.Ticker(ticker.strip().upper())
-        hist = t.history(period="1y")
-        if hist.empty: raise ValueError("No data")
+        
+        # Wait briefly to avoid 429s from Yahoo
+        time.sleep(0.1) 
         
         info = t.info or {}
-        price = float(info.get("currentPrice", 0) or info.get("regularMarketPrice", 0) or 0)
+        hist = t.history(period="6mo")
+        
+        if hist.empty or not info:
+            raise ValueError("No data available for this ticker.")
+
+        price = float(info.get("currentPrice", 0))
+        currency = info.get("currency", "USD")
+        
+        # Fetch Analyst Data (Buy/Sell/Hold counts)
+        key_stats = t.default_key_statistics or {}
+        analyst_data = t.fast_info
+        target_price = analyst_data.targetMeanPrice if hasattr(analyst_data, 'targetMeanPrice') else None
+        
+        # Calculate Technical Score
+        tech_score = calculate_technical_score(hist)
         
         return {
             "symbol": ticker.strip().upper(),
-            "name": info.get("longName", "Unknown"),
-            "price": round(price, 2),
-            "currency": info.get("currency", "USD"),
-            "market_cap": int(info.get("marketCap", 0)) or None,
-            "pe_ratio": float(info.get("trailingPE", 0) or 0) or None,
-            "eps": float(info.get("trailingEps", 0) or 0) or None,
-            "dividend_yield": float(info.get("dividendYield", 0) * 100 or 0) or None,
-            "beta": float(info.get("beta", 0) or 0) or None,
-            "52w_high": float(hist["High"].max()) or None,
-            "52w_low": float(hist["Low"].min()) or None,
-            "volume": int(info.get("volume", 0) or info.get("averageVolume", 0) or 0),
+            "name": info.get("shortName", "Unknown"),
+            "price": price,
+            "currency": currency,
+            "market_cap": int(info.get("marketCap", 0)),
+            "pe_ratio": float(info.get("trailingPE", 0)) or None,
+            "dividend_yield": float(info.get("dividendYield", 0) * 100 or 0),
+            
+            # New Analysis Features
+            "technical_score": tech_score,
+            "risk_info": calculate_risk_info(t),
+            "rsi_14": round(float(hist['Close'].rolling(14).mean().iloc[-1]), 2) if len(hist) > 14 else None,
+            
+            # Analyst Data
+            "analyst_target_price": float(target_price) if target_price and target_price > 0 else None,
+            "recommendation": info.get("recommendation", {}).get("key", "N/A").upper() if isinstance(info.get("recommendation"), dict) else "NEUTRAL",
+            
+            # History for charts
             "history": hist.reset_index().to_dict(orient="records")
         }
-    except Exception as e:
-        raise HTTPException(status_code=404, detail=f"Ticker not found or invalid: {str(e)}")
 
-@app.get("/tech/{ticker}")
-def get_technicals(ticker: str):
-    try:
-        hist = yf.Ticker(ticker.strip().upper()).history(period="1y")
-        if hist.empty: raise ValueError("No history data")
-        
-        df = pd.DataFrame(hist)
-        close = df['Close']
-        
-        # --- Calculate Indicators Manually (No external library needed) ---
-        
-        # SMA 20 & 50
-        sma20 = close.rolling(window=20).mean().iloc[-1]
-        sma50 = close.rolling(window=50).mean().iloc[-1]
-        
-        # RSI 14 (Standard Formula)
-        delta = close.diff()
-        gain = delta.where(delta > 0, 0).rolling(window=14).mean()
-        loss = (-delta).where(delta < 0, 0).rolling(window=14).mean()
-        rs = gain / loss
-        rsi_14 = 100 - (100 / (1 + rs)).iloc[-1]
-        
-        # MACD (12, 26, 9)
-        ema12 = close.ewm(span=12, adjust=False).mean()
-        ema26 = close.ewm(span=26, adjust=False).mean()
-        macd_line = ema12 - ema26
-        signal_line = macd_line.ewm(span=9, adjust=False).mean()
-        histogram = macd_line - signal_line
-        
-        # Return standardized JSON to match the frontend dashboard
-        return {
-            "sma20": round(float(sma20), 2) if not pd.isna(sma20) else None,
-            "sma50": round(float(sma50), 2) if not pd.isna(sma50) else None,
-            "rsi_14": round(float(rsi_14), 2) if not pd.isna(rsi_14) else None,
-            "macd": {
-                "line": round(float(macd_line.iloc[-1]), 2) if not pd.isna(macd_line.iloc[-1]) else None,
-                "signal": round(float(signal_line.iloc[-1]), 2) if not pd.isna(signal_line.iloc[-1]) else None,
-                "histogram": round(float(histogram.iloc[-1]), 2) if not pd.isna(histogram.iloc[-1]) else None
-            }
-        }
     except Exception as e:
-        raise HTTPException(status_code=404, detail=f"Technical data unavailable: {str(e)}")
+        raise HTTPException(status_code=404, detail=f"Ticker not found or data unavailable: {str(e)}")
 
 if __name__ == "__main__":
     import uvicorn
