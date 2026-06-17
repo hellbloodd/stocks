@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Trade Republic Explorer</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+  <style>
+    :root { --bg: #0b0f14; --card: #111820; --accent: #38a57d; --text: #e6edf3; --muted: #8b949e; --border: #21262d; --pos: #3fb950; --neg: #f85149; }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: var(--bg); color: var(--text); padding: 1.5rem; max-width: 1200px; margin: auto; line-height: 1.4; }
+    h1 { margin-bottom: 1rem; font-size: 1.8rem; letter-spacing: -0.5px; }
+    .card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 1.2rem; margin-bottom: 1rem; box-shadow: 0 4px 12px rgba(0,0,0,0.3); }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem; margin-bottom: 1rem; }
+    input, select { background: #0d1117; border: 1px solid var(--border); color: var(--text); padding: 0.6rem; border-radius: 8px; width: 100%; font-size: 1rem; }
+    button { background: var(--accent); color: #fff; border: none; padding: 0.6rem 1rem; border-radius: 8px; cursor: pointer; font-weight: 600; transition: 0.2s; }
+    button:hover { filter: brightness(1.15); }
+    .btn-outline { background: transparent; border: 1px solid var(--border); color: var(--text); margin-left: 0.5rem; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+    th, td { padding: 0.6rem 0.8rem; text-align: left; border-bottom: 1px solid var(--border); }
+    th { color: var(--muted); }
+    .hidden { display: none !important; }
+    #status { margin-top: 0.5rem; font-size: 0.9rem; color: var(--muted); min-height: 1.2em; }
+    canvas { max-width: 100%; height: 320px; background: var(--card); border-radius: 8px; padding: 0.5rem; box-sizing: border-box; }
+    .watchlist-item, .screener-result { display: flex; justify-content: space-between; align-items: center; padding: 0.7rem; border-bottom: 1px solid var(--border); cursor: pointer; transition: 0.2s; }
+    .watchlist-item:hover, .screener-result:hover { background: #161b22; }
+    .tag { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 0.8rem; font-weight: 600; margin-left: auto; }
+    .bullish { background: #0f3d2e; color: var(--pos); } .bearish { background: #4a1515; color: var(--neg); }
+    @media (max-width: 768px) { body { padding: 1rem; } .grid { grid-template-columns: 1fr; } h1 { font-size: 1.4rem; } }
+  </style>
+</head>
+<body>
+  <h1>📈 Stock Explorer (Trade Republic Compatible)</h1>
+
+  <div class="card">
+    <input type="text" id="tickerInput" placeholder="Enter ticker (e.g., AAPL, TSLA, MSFT, BTC-USD)" />
+    <div style="margin-top:0.5rem; display:flex; gap:0.5rem;">
+      <button onclick="fetchStock()">Load Stock</button>
+      <button class="btn-outline" onclick="toggleWatchlist()">📋 Watchlist</button>
+      <button class="btn-outline" onclick="toggleScreener()">🔍 Screener</button>
+    </div>
+    <p id="status">Enter a ticker to explore fundamentals, charts & technical indicators.</p>
+  </div>
+
+  <div id="dashboard" class="hidden">
+    <div class="grid card">
+      <div><strong>Price</strong><div id="price" style="font-size:1.8rem; font-weight:700;">€0.00</div></div>
+      <div><strong>P/E Ratio</strong><div id="pe">—</div></div>
+      <div><strong>Market Cap</strong><div id="mcap">—</div></div>
+      <div><strong>Div Yield</strong><div id="divy">—</div></div>
+    </div>
+
+    <div class="card"><canvas id="priceChart"></canvas></div>
+
+    <div class="grid card">
+      <div><strong>RSI (14)</strong><div id="rsi" style="font-weight:600;">—</div></div>
+      <div><strong>SMA 20 / 50</strong><div id="sma">— / —</div></div>
+      <div><strong>MACD Line</strong><div id="macd-line">—</div></div>
+      <div><strong>Signal</strong><div id="signal">—</div></div>
+    </div>
+
+    <div class="grid card">
+      <div><strong>52W High</strong><div id="high52">—</div></div>
+      <div><strong>52W Low</strong><div id="low52">—</div></div>
+      <div><strong>Beta</strong><div id="beta">—</div></div>
+      <div><strong>Volume</strong><div id="vol">—</div></div>
+    </div>
+
+    <button class="btn-outline" onclick="addToWatchlist()" style="width:100%; margin-top:0.5rem;">➕ Add to Watchlist</button>
+  </div>
+
+  <div id="watchlistSection" class="card hidden">
+    <h3>Your Watchlist</h3>
+    <div id="watchlistItems"></div>
+    <button onclick="toggleWatchlist()" style="margin-top:1rem;">Close</button>
+  </div>
+
+  <div id="screenerSection" class="card hidden">
+    <h3>Market Screener</h3>
+    <div style="display:flex; gap:0.5rem; flex-wrap:wrap; margin-bottom:1rem;">
+      <input type="number" id="maxPE" placeholder="Max P/E" style="width:80px;" />
+      <input type="number" id="minMcap" placeholder="Min MCap ($)" style="width:120px;" />
+      <button onclick="runScreener()">Run</button>
+    </div>
+    <div id="screenerResults"></div>
+    <button onclick="toggleScreener()" style="margin-top:1rem;">Close</button>
+  </div>
+
+<script>
+  const API = "https://stocks-yohw.onrender.com";
+  let currentTicker = "", chartInstance = null;
+
+  document.getElementById('tickerInput').addEventListener('keyup', (e) => {
+    if(e.key === 'Enter') fetchStock();
+  });
+
+  async function fetchStock() {
+    const ticker = document.getElementById('tickerInput').value.trim().toUpperCase();
+    if (!ticker) return;
+    
+    document.getElementById('status').textContent = "⏳ Fetching data...";
+    try {
+      const [valRes, stockRes, techRes] = await Promise.all([
+        fetch(`${API}/validate/${ticker}`),
+        fetch(`${API}/stock/${ticker}`),
+        fetch(`${API}/tech/${ticker}`)
+      ]);
+
+      if (!valRes.ok || !stockRes.ok) throw new Error("Invalid ticker or no data available.");
+
+      const stock = await stockRes.json();
+      const tech = await techRes.json();
+      
+      currentTicker = stock.symbol;
+      document.getElementById('dashboard').classList.remove('hidden');
+      
+      // Fundamentals
+      document.getElementById('price').textContent = `${stock.currency === 'EUR' ? '€' : '$'}${stock.price.toFixed(2)}`;
+      document.getElementById('pe').textContent = stock.pe_ratio || "N/A";
+      document.getElementById('mcap').textContent = stock.market_cap ? `$${(stock.market_cap/1e9).toFixed(2)}B` : "N/A";
+      document.getElementById('divy').textContent = stock.dividend_yield ? `${stock.dividend_yield.toFixed(2)}%` : "N/A";
+      
+      // Technicals
+      document.getElementById('rsi').textContent = tech.rsi_14 ? tech.rsi_14.toFixed(1) : "N/A";
+      document.getElementById('rsi').style.color = tech.rsi_14 > 70 ? 'var(--neg)' : tech.rsi_14 < 30 ? 'var(--pos)' : 'var(--text)';
+      document.getElementById('sma').textContent = `${stock.history[stock.history.length-1].Date.toLocaleDateString()} / ${tech.sma20?.toFixed(2) || '—'} / ${tech.sma50?.toFixed(2) || '—'}`;
+      document.getElementById('macd-line').textContent = tech.macd?.line ?? "N/A";
+      document.getElementById('signal').innerHTML = `${tech.macd?.signal?.toFixed(2) ?? '—'} <span class="tag ${tech.macd?.histogram >= 0 ? 'bullish' : 'bearish'}">${tech.macd?.histogram >= 0 ? '▲ Bullish' : '▼ Bearish'}</span>`;
+      
+      // Stats
+      document.getElementById('high52').textContent = stock['52w_high']?.toFixed(2) || "—";
+      document.getElementById('low52').textContent = stock['52w_low']?.toFixed(2) || "—";
+      document.getElementById('beta').textContent = stock.beta || "N/A";
+      document.getElementById('vol').textContent = stock.volume ? `${(stock.volume/1e6).toFixed(1)}M` : "N/A";
+
+      // Chart
+      renderChart(stock.history);
+      
+      document.getElementById('status').textContent = `✅ Loaded ${stock.name} (${stock.symbol})`;
+    } catch (err) {
+      document.getElementById('status').textContent = `❌ ${err.message}`;
+      document.getElementById('dashboard').classList.add('hidden');
+    }
+  }
+
+  function renderChart(history) {
+    const ctx = document.getElementById('priceChart').getContext('2d');
+    if (chartInstance) chartInstance.destroy();
+    
+    chartInstance = new Chart(ctx, {
+      type: "line",
+      data: {
+        labels: history.map(h => new Date(h.Date)),
+        datasets: [{
+          label: "Price",
+          data: history.map(h => h.Close),
+          borderColor: "#38a57d",
+          backgroundColor: "rgba(56,165,125,0.1)",
+          fill: true,
+          tension: 0.3,
+          pointRadius: 0
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        scales: { x: { type: "time", grid: { display: false } }, y: { grid: { color: "#21262d" } } },
+        plugins: { legend: { display: false } }
+      }
+    });
+  }
+
+  function addToWatchlist() {
+    if (!currentTicker) return;
+    let wl = JSON.parse(localStorage.getItem("wl") || "[]");
+    if (!wl.includes(currentTicker)) wl.push(currentTicker);
+    localStorage.setItem("wl", JSON.stringify(wl));
+    document.getElementById('status').textContent = `✅ Added ${currentTicker} to watchlist.`;
+  }
+
+  function toggleWatchlist() {
+    const sec = document.getElementById('watchlistSection');
+    sec.classList.toggle('hidden');
+    if (!sec.classList.contains('hidden')) renderWatchlist();
+  }
+
+  function renderWatchlist() {
+    const wl = JSON.parse(localStorage.getItem("wl") || "[]");
+    const container = document.getElementById('watchlistItems');
+    container.innerHTML = "";
+    if (wl.length === 0) container.innerHTML = "<p style='padding:1rem; color:var(--muted)'>Watchlist is empty.</p>";
+    wl.forEach(t => {
+      const div = document.createElement('div');
+      div.className = 'watchlist-item';
+      div.innerHTML = `<strong>${t}</strong> <button class="btn-outline" onclick="removeFromWL('${t}')" style="padding:0.3rem 0.6rem; font-size:0.8rem;">🗑️</button>`;
+      div.onclick = (e) => { if(!e.target.closest('button')) { document.getElementById('tickerInput').value = t; fetchStock(); } };
+      container.appendChild(div);
+    });
+  }
+
+  function removeFromWL(t) {
+    let wl = JSON.parse(localStorage.getItem("wl") || "[]").filter(x => x !== t);
+    localStorage.setItem("wl", JSON.stringify(wl));
+    renderWatchlist();
+  }
+
+  function toggleScreener() {
+    document.getElementById('screenerSection').classList.toggle('hidden');
+  }
+
+  async function runScreener() {
+    const maxPE = parseFloat(document.getElementById('maxPE').value);
+    const minMcap = parseFloat(document.getElementById('minMcap').value) * 1e9;
+    if (isNaN(maxPE) && isNaN(minMcap)) return;
+    
+    document.getElementById('screenerResults').innerHTML = "<p>Scanning... (may take a few seconds)</p>";
+    
+    // Common US/EU tickers & ETFs widely available on TR
+    const candidates = ["AAPL","MSFT","GOOGL","AMZN","TSLA","META","NVDA","AMD","INTC","NFLX","JPM","V","WMT","DIS","NKE","PEP","KO","MCD","SBUX","COST","AVGO","QCOM","TXN","MU","AMAT","LRCX","ADBE","CRM","PYPL","SQ","SHOP","UBER","LYFT","ABNB","DASH","COIN","BABA","JD","PDD","BIDU","NTES","BILI","IQ","VIPS","SUI","KWEB","XLI","XLK","XLV","JJI","QQQ","SPY","IWM","EEM","VEA","IEFA"];
+    
+    const results = [];
+    for (const t of candidates) {
+      try {
+        const res = await fetch(`${API}/stock/${t}`);
+        if (!res.ok) continue;
+        const d = await res.json();
+        let pass = true;
+        if (!isNaN(maxPE) && (d.pe_ratio === null || d.pe_ratio > maxPE)) pass = false;
+        if (!isNaN(minMcap) && (d.market_cap === null || d.market_cap < minMcap)) pass = false;
+        if (pass) results.push(d);
+      } catch {}
+    }
+
+    const container = document.getElementById('screenerResults');
+    if (results.length === 0) {
+      container.innerHTML = "<p style='padding:1rem;'>No matches found. Try wider filters.</p>";
+      return;
+    }
+    
+    container.innerHTML = `<table><thead><tr><th>Ticker</th><th>Price</th><th>P/E</th><th>MCap</th></tr></thead><tbody>` + 
+      results.map(r => `<tr style="cursor:pointer" onclick="document.getElementById('tickerInput').value='${r.symbol}'; fetchStock();">
+        <td>${r.symbol}</td><td>${r.price}</td><td>${r.pe_ratio || "—"}</td><td>${(r.market_cap/1e9).toFixed(2)}B</td>
+      </tr>`).join("") + `</tbody></table>`;
+  }
+
+  // Load watchlist on startup
+  document.addEventListener('DOMContentLoaded', () => renderWatchlist());
+</script>
+</body>
+</html>
