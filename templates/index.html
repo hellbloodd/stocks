@@ -1,118 +1,125 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Trade Republic Stock Tracker</title>
-    <link rel="stylesheet" href="static/style.css">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>TR Portfolio Dashboard</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    :root { --bg: #0b0f14; --card: #111820; --accent: #38a57d; --text: #e6edf3; --muted: #8b949e; }
+    body { margin: 0; font-family: system-ui, -apple-system, sans-serif; background: var(--bg); color: var(--text); padding: 2rem; max-width: 1100px; margin-inline: auto; }
+    h1 { margin: 0 0 1.5rem; font-size: 1.8rem; letter-spacing: -0.5px; }
+    .card { background: var(--card); border-radius: 12px; padding: 1.5rem; margin-bottom: 1rem; box-shadow: 0 4px 12px rgba(0,0,0,0.3); }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem; margin-bottom: 1rem; }
+    .stat { font-size: 2rem; font-weight: 700; margin: 0.5rem 0; }
+    .pos { color: #3fb950; } .neg { color: #f85149; }
+    button { background: var(--accent); color: #fff; border: none; padding: 0.65rem 1.2rem; border-radius: 8px; font-weight: 600; cursor: pointer; margin-top: 1rem; }
+    button:hover { filter: brightness(1.1); }
+    input[type="file"] { display: none; }
+    label.btn { display: inline-block; padding: 0.65rem 1.2rem; background: #30363d; border-radius: 8px; cursor: pointer; margin-top: 1rem; }
+    table { width: 100%; border-collapse: collapse; margin-top: 1rem; font-size: 0.9rem; }
+    th, td { padding: 0.75rem 1rem; text-align: left; border-bottom: 1px solid #21262d; }
+    th { color: var(--muted); font-weight: 500; }
+    .hidden { display: none !important; }
+    #status { margin-top: 0.8rem; font-size: 0.9rem; color: var(--muted); min-height: 1.2em; }
+    canvas { max-width: 100%; height: 280px; }
+  </style>
 </head>
 <body>
-    <div class="container">
-        <header>
-            <h1>🚀 Trade Republic Stock Tracker</h1>
-            <p>Monitor your portfolio performance in real-time</p>
-        </header>
+  <h1>Trade Republic Analyzer</h1>
+  
+  <div class="card">
+    <label for="pdfInput" class="btn">📁 Select Tax PDF</label>
+    <input type="file" id="pdfInput" accept=".pdf" />
+    <button onclick="analyze()" id="runBtn" class="hidden">Analyze Statement</button>
+    <p id="status">Upload your annual Trade Republic tax PDF to begin.</p>
+  </div>
 
-        <main>
-            <!-- Portfolio Summary -->
-            <section class="summary-section">
-                <div class="summary-card">
-                    <h2>Portfolio Summary</h2>
-                    <div class="summary-grid">
-                        <div class="stat">
-                            <label>Total Invested</label>
-                            <p id="totalInvested" class="value">$0.00</p>
-                        </div>
-                        <div class="stat">
-                            <label>Total Profit/Loss</label>
-                            <p id="totalPL" class="value">$0.00</p>
-                        </div>
-                        <div class="stat">
-                            <label>Return %</label>
-                            <p id="returnPercent" class="value">0.00%</p>
-                        </div>
-                        <div class="stat">
-                            <label>Total Stocks</label>
-                            <p id="stockCount" class="value">0</p>
-                        </div>
-                        <div class="stat">
-                            <label>Total Trades</label>
-                            <p id="tradeCount" class="value">0</p>
-                        </div>
-                    </div>
-                </div>
-            </section>
+  <div id="dashboard" class="grid hidden">
+    <div class="card"><h3>Realized P&L</h3><div class="stat" id="pnl">€0.00</div></div>
+    <div class="card"><h3>Win Rate</h3><div class="stat" id="winrate">0%</div></div>
+    <div class="card"><h3>Total Trades</h3><div class="stat" id="totalTrades">0</div></div>
+  </div>
 
-            <!-- Stocks Performance Table -->
-            <section class="stocks-section">
-                <div class="section-header">
-                    <h2>Stocks by Performance (Best to Worst)</h2>
-                    <button id="refreshBtn" class="btn btn-primary">Refresh</button>
-                </div>
-                <div class="table-container">
-                    <table id="stocksTable">
-                        <thead>
-                            <tr>
-                                <th>Symbol</th>
-                                <th>Profit/Loss</th>
-                                <th>Return %</th>
-                                <th>Trades</th>
-                                <th>Total Invested</th>
-                                <th>Action</th>
-                            </tr>
-                        </thead>
-                        <tbody id="stocksTableBody">
-                            <tr>
-                                <td colspan="6" class="loading">Loading stocks...</td>
-                            </tr>
-                        </tbody>
-                    </table>
-                </div>
-            </section>
+  <div id="chartSection" class="card hidden">
+    <h3>P&L per Sell Trade</h3>
+    <canvas id="pnlChart"></canvas>
+  </div>
 
-            <!-- Add Trade Form -->
-            <section class="form-section">
-                <h2>Add New Trade</h2>
-                <form id="addTradeForm" class="trade-form">
-                    <div class="form-group">
-                        <label for="symbol">Symbol</label>
-                        <input type="text" id="symbol" placeholder="e.g., AAPL" required>
-                    </div>
-                    <div class="form-group">
-                        <label for="quantity">Quantity</label>
-                        <input type="number" id="quantity" step="0.01" placeholder="e.g., 10" required>
-                    </div>
-                    <div class="form-group">
-                        <label for="entryPrice">Entry Price</label>
-                        <input type="number" id="entryPrice" step="0.01" placeholder="e.g., 150.00" required>
-                    </div>
-                    <div class="form-group">
-                        <label for="entryDate">Entry Date</label>
-                        <input type="datetime-local" id="entryDate" required>
-                    </div>
-                    <div class="form-group">
-                        <label for="exitPrice">Exit Price (optional)</label>
-                        <input type="number" id="exitPrice" step="0.01" placeholder="Leave empty if open">
-                    </div>
-                    <div class="form-group">
-                        <label for="exitDate">Exit Date (optional)</label>
-                        <input type="datetime-local" id="exitDate">
-                    </div>
-                    <button type="submit" class="btn btn-success">Add Trade</button>
-                </form>
-            </section>
+  <div id="tradesSection" class="card hidden">
+    <h3>Recent Transactions</h3>
+    <table><thead><tr><th>Date</th><th>Type</th><th>Qty</th><th>Price</th><th>Value</th></tr></thead><tbody id="tradeRows"></tbody></table>
+  </div>
 
-            <!-- Stock Details Modal -->
-            <div id="detailsModal" class="modal">
-                <div class="modal-content">
-                    <span class="close">&times;</span>
-                    <h2 id="modalTitle">Stock Details</h2>
-                    <div id="modalBody"></div>
-                </div>
-            </div>
-        </main>
-    </div>
+<script>
+let chart = null;
 
-    <script src="static/script.js"></script>
+document.getElementById('pdfInput').addEventListener('change', function() {
+  document.getElementById('runBtn').classList.toggle('hidden', !this.files.length);
+  document.getElementById('status').textContent = this.files[0].name;
+});
+
+async function analyze() {
+  const file = document.getElementById('pdfInput').files[0];
+  if (!file) return;
+  
+  const btn = document.getElementById('runBtn');
+  btn.disabled = true; btn.textContent = "Processing...";
+  
+  const form = new FormData();
+  form.append("file", file);
+  
+  try {
+    // Change to your backend URL after deployment, e.g., https://your-backend.onrender.com
+    const res = await fetch("http://localhost:8000/analyze", { method: "POST", body: form });
+    if (!res.ok) throw new Error(await res.text());
+    const data = await res.json();
+    
+    // Update stats
+    document.getElementById('dashboard').classList.remove('hidden');
+    document.getElementById('chartSection').classList.remove('hidden');
+    document.getElementById('tradesSection').classList.remove('hidden');
+    
+    const pnlEl = document.getElementById('pnl');
+    pnlEl.textContent = `€${data.summary.realized_pnl_eur.toFixed(2)}`;
+    pnlEl.className = `stat ${data.summary.realized_pnl_eur >= 0 ? 'pos' : 'neg'}`;
+    
+    document.getElementById('winrate').textContent = `${data.summary.win_rate_pct}%`;
+    document.getElementById('totalTrades').textContent = data.summary.total_trades;
+    
+    // Table
+    const tbody = document.getElementById('tradeRows');
+    tbody.innerHTML = "";
+    data.trades_raw.forEach(t => {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `<td>${t.date}</td><td>${t.type}</td><td>${t.quantity || 0}</td><td>€${t.price?.toFixed(4) || '—'}</td><td>€${(t.value||0).toFixed(2)}</td>`;
+      tbody.appendChild(tr);
+    });
+    
+    // Chart
+    const ctx = document.getElementById('pnlChart').getContext('2d');
+    if (chart) chart.destroy();
+    chart = new Chart(ctx, {
+      type: "bar",
+      data: {
+        labels: data.top_sells.map((t,i) => `#${i+1}`),
+        datasets: [{ 
+          label: "Sell Trade Value (€)", 
+          data: data.top_sells.map(t => t.value || 0), 
+          backgroundColor: "#38a57d" 
+        }]
+      },
+      options: { responsive: true, scales: { y: { beginAtZero: true } }, plugins: { legend: { display: false } } }
+    });
+    
+    document.getElementById('status').textContent = "✅ Analysis complete.";
+  } catch (e) {
+    console.error(e);
+    document.getElementById('status').textContent = `❌ ${e.message}`;
+  } finally {
+    btn.disabled = false; btn.textContent = "Analyze Statement";
+  }
+}
+</script>
 </body>
 </html>
