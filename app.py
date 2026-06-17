@@ -78,4 +78,16 @@ def get_technicals(ticker: str):
         return {
             "sma20": round(float(sma20), 2) if not pd.isna(sma20) else None,
             "sma50": round(float(sma50), 2) if not pd.isna(sma50) else None,
-            "rsi_1
+            "rsi_14": round(float(rsi_14), 2) if not pd.isna(rsi_14) else None,
+            "macd": {
+                "line": round(float(macd_line.iloc[-1]), 2) if not pd.isna(macd_line.iloc[-1]) else None,
+                "signal": round(float(signal_line.iloc[-1]), 2) if not pd.isna(signal_line.iloc[-1]) else None,
+                "histogram": round(float(histogram.iloc[-1]), 2) if not pd.isna(histogram.iloc[-1]) else None
+            }
+        }
+    except Exception as e:
+        raise HTTPException(status_code=404, detail=f"Technical data unavailable: {str(e)}")
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)
